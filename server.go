@@ -77,8 +77,8 @@ func (s *server) msg(c *client, args []string) {
 	//Check if client exist on server and use it for check
 	r, ok := s.clients[args[1]]
 	if ok {
-		//Format the message
-		msg := strings.Join(args[1:], " ")
+		//Format the message (Concat 2. argument and everything after it)
+		msg := strings.Join(args[2:], " ")
 		msg = c.nick + " : " + msg
 
 		//Get public key of the reciever of the message

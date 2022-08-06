@@ -12,7 +12,6 @@ import (
 type client struct {
 	conn     net.Conn
 	nick     string
-	room     *room
 	commands chan<- command
 	private  *rsa.PrivateKey
 	public   rsa.PublicKey
@@ -36,13 +35,7 @@ func (c *client) readInput() {
 				client: c,
 				args:   args,
 			}
-		case "/join":
-			c.commands <- command{
-				id:     CMD_JOIN,
-				client: c,
-				args:   args,
-			}
-		case "/rooms":
+		case "/clients":
 			c.commands <- command{
 				id:     CMD_ROOMS,
 				client: c,
@@ -71,9 +64,20 @@ func (c *client) err(err error) {
 }
 
 func (c *client) msg(x *client, msg string) {
-	dMsg := decrypt(msg, *x.private)
-	_, e := x.conn.Write([]byte("=> " + dMsg + "\n"))
-	if e != nil {
-		log.Fatalln("unable to write over client connection")
+
+	//Check if contacting other client (Decrypt or not)
+	if c.private != x.private {
+		dMsg := decrypt(msg, *x.private)
+		_, e := x.conn.Write([]byte("=> " + dMsg + "\n"))
+		if e != nil {
+			log.Fatalln("unable to write over client connection")
+		}
+
+	} else {
+		_, e := x.conn.Write([]byte("=> " + msg + "\n"))
+		if e != nil {
+			log.Fatalln("unable to write over client connection")
+		}
 	}
+
 }
