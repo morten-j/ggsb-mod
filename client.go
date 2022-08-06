@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"crypto/rsa"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 )
@@ -12,6 +14,8 @@ type client struct {
 	nick     string
 	room     *room
 	commands chan<- command
+	private  *rsa.PrivateKey
+	public   rsa.PublicKey
 }
 
 func (c *client) readInput() {
@@ -22,7 +26,6 @@ func (c *client) readInput() {
 		}
 
 		msg = strings.Trim(msg, "\r\n")
-
 		args := strings.Split(msg, " ")
 		cmd := strings.TrimSpace(args[0])
 
@@ -67,6 +70,10 @@ func (c *client) err(err error) {
 	c.conn.Write([]byte("ERR: " + err.Error() + "\n"))
 }
 
-func (c *client) msg(msg string) {
-	c.conn.Write([]byte("=> " + msg + "\n"))
+func (c *client) msg(x *client, msg string) {
+	dMsg := decrypt(msg, *x.private)
+	_, e := x.conn.Write([]byte("=> " + dMsg + "\n"))
+	if e != nil {
+		log.Fatalln("unable to write over client connection")
+	}
 }

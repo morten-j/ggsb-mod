@@ -1,7 +1,8 @@
 package main
 
 import (
-	"errors"
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"log"
 	"net"
@@ -9,13 +10,13 @@ import (
 )
 
 type server struct {
-	rooms    map[string]*room
+	clients  map[string]*client
 	commands chan command
 }
 
 func newServer() *server {
 	return &server{
-		rooms:    make(map[string]*room),
+		clients:  make(map[string]*client),
 		commands: make(chan command),
 	}
 }
@@ -25,10 +26,8 @@ func (s *server) run() {
 		switch cmd.id {
 		case CMD_NICK:
 			s.nick(cmd.client, cmd.args)
-		case CMD_JOIN:
-			s.join(cmd.client, cmd.args)
 		case CMD_ROOMS:
-			s.listRooms(cmd.client, cmd.args)
+			s.listClients(cmd.client, cmd.args)
 		case CMD_MSG:
 			s.msg(cmd.client, cmd.args)
 		case CMD_QUIT:
@@ -38,73 +37,70 @@ func (s *server) run() {
 }
 
 func (s *server) newClient(conn net.Conn) {
-	log.Printf("New client connected: %s", conn.RemoteAddr().String())
+	// generate RSA keys
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	c := &client{
 		conn:     conn,
 		nick:     "anon",
 		commands: s.commands,
+		private:  privateKey,
+		public:   privateKey.PublicKey,
 	}
+
+	log.Printf("New client connected: %s", conn.RemoteAddr().String())
 
 	c.readInput()
 }
 
 func (s *server) nick(c *client, args []string) {
 	c.nick = args[1]
-	c.msg(fmt.Sprintf("Name changed to %s", c.nick))
+
+	s.clients[c.nick] = c
+
+	c.msg(c, fmt.Sprintf("Name changed to %s", c.nick))
 }
 
-func (s *server) join(c *client, args []string) {
-	roomName := args[1]
-
-	r, ok := s.rooms[roomName]
-	if !ok { // Room does not exist, so make one
-		r = &room{
-			name:    roomName,
-			members: make(map[net.Addr]*client),
-		}
-		s.rooms[roomName] = r
+func (s *server) listClients(c *client, args []string) {
+	var clients []string
+	for name := range s.clients {
+		clients = append(clients, name)
 	}
 
-	r.members[c.conn.RemoteAddr()] = c
-
-	s.quitCurrentRoom(c)
-	c.room = r
-
-	r.broadcast(c, fmt.Sprintf("%s has joined the room", c.nick))
-	c.msg(fmt.Sprintf("Welcome to room: %s", r.name))
-}
-
-func (s *server) listRooms(c *client, args []string) {
-	var rooms []string
-	for name := range s.rooms {
-		rooms = append(rooms, name)
-	}
-
-	c.msg(fmt.Sprintf("Rooms available: %s", strings.Join(rooms, ", ")))
+	c.msg(c, fmt.Sprintf("Rooms available: %s", strings.Join(clients, ", ")))
 }
 
 func (s *server) msg(c *client, args []string) {
-	if c.room == nil {
-		c.err(errors.New("you must join room first"))
-		return
-	}
+	//Check if client exist on server and use it for check
+	r, ok := s.clients[args[1]]
+	if ok {
+		//Format the message
+		msg := strings.Join(args[1:], " ")
+		msg = c.nick + " : " + msg
 
-	c.room.broadcast(c, c.nick+": "+strings.Join(args[1:len(args)], " "))
+		//Get public key of the reciever of the message
+		publicKey := r.public
+
+		//Encrypt
+		eMsg := encrypt(msg, publicKey)
+
+		//Send message
+		c.msg(r, eMsg)
+	}
 }
 
 func (s *server) quit(c *client, args []string) {
 	log.Printf("Client has disconnected: %s", c.conn.RemoteAddr().String())
 
-	s.quitCurrentRoom(c)
-
-	c.msg("Bye bb!")
-	c.conn.Close()
-}
-
-func (s *server) quitCurrentRoom(c *client) {
-	if c.room != nil {
-		delete(c.room.members, c.conn.RemoteAddr())
-		c.room.broadcast(c, fmt.Sprintf("%s has left the room", c.nick))
+	//Remove from client list
+	_, ok := s.clients[c.nick]
+	if ok {
+		delete(s.clients, c.nick)
 	}
+
+	c.msg(c, "Bye bb!")
+	c.conn.Close()
 }
