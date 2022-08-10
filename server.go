@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
@@ -36,6 +37,7 @@ func (s *server) run() {
 	}
 }
 
+//TODO Skal tilføje brugernavn (måske kodeord også???)
 func (s *server) newClient(conn net.Conn) {
 	// generate RSA keys
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -43,20 +45,46 @@ func (s *server) newClient(conn net.Conn) {
 		log.Fatalln(err)
 	}
 
+	username := promptConnection(conn, "What username would you like?")
+
 	c := &client{
 		conn:     conn,
-		nick:     "anon",
+		nick:     username,
 		commands: s.commands,
 		private:  privateKey,
 		public:   privateKey.PublicKey,
 	}
 
+	s.clients[c.nick] = c
+
 	log.Printf("New client connected: %s", conn.RemoteAddr().String())
+
+	c.msg(c, "Welcome to the server!"+"\n")
 
 	c.readInput()
 }
 
+func promptConnection(connection net.Conn, prompt string) string {
+	_, e := connection.Write([]byte(prompt + "\n"))
+	if e != nil {
+		log.Fatalln("unable to write over client connection")
+	}
+
+	msg, err := bufio.NewReader(connection).ReadString('\n')
+	if err != nil {
+		log.Fatalln("unable to read commandline")
+	}
+
+	return msg
+}
+
+//TODO Check if name is valid
 func (s *server) nick(c *client, args []string) {
+	if len(args) > 2 {
+		c.msg(c, "There can not be spaces in usernames!"+"\n")
+		return
+	}
+
 	c.nick = args[1]
 
 	s.clients[c.nick] = c
@@ -64,6 +92,7 @@ func (s *server) nick(c *client, args []string) {
 	c.msg(c, fmt.Sprintf("Name changed to %s", c.nick))
 }
 
+//TODO Fix så det virker med clients
 func (s *server) listClients(c *client, args []string) {
 	var clients []string
 	for name := range s.clients {
@@ -73,6 +102,7 @@ func (s *server) listClients(c *client, args []string) {
 	c.msg(c, fmt.Sprintf("Rooms available: %s", strings.Join(clients, ", ")))
 }
 
+//TODO Security check
 func (s *server) msg(c *client, args []string) {
 	//Check if client exist on server and use it for check
 	r, ok := s.clients[args[1]]

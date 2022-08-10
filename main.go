@@ -5,6 +5,10 @@ import (
 	"net"
 )
 
+//TODO * Database for login
+// * Save messages encrypted on PC
+// * Save private key local on PC
+
 func main() {
 	s := newServer()
 	go s.run()
